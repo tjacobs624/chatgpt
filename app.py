@@ -1,5 +1,6 @@
 from flask import Flask, render_template_string, request, redirect, url_for, flash
 import subprocess
+import json
 
 import os
 
@@ -32,41 +33,68 @@ def raw_edit():
     status = caddy_status()
     return render_template_string(RAW_TEMPLATE, content=content, status=status)
 
-def parse_entries(text: str):
+def load_caddy_json():
+    """Return the Caddyfile adapted to JSON using Caddy itself."""
+    try:
+        result = subprocess.run(
+            ['caddy', 'adapt', '--pretty', '--config', CADDYFILE_PATH],
+            capture_output=True, text=True, check=True
+        )
+        return json.loads(result.stdout)
+    except subprocess.CalledProcessError as e:
+        flash(f'Error adapting Caddyfile: {e.stderr}', 'error')
+        return {}
+
+
+def parse_entries(config):
     entries = []
-    lines = iter(text.splitlines())
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith('#'):
-            continue
-        if stripped.endswith('{'):
-            domain = stripped[:-1].strip()
-            proxy = ''
-            for inner in lines:
-                s = inner.strip()
-                if s.startswith('reverse_proxy'):
-                    proxy = s[len('reverse_proxy'):].strip()
-                if s == '}':
-                    break
-            if domain and proxy:
-                entries.append({'domain': domain, 'proxy': proxy})
+    servers = config.get('apps', {}).get('http', {}).get('servers', {})
+    for server_name, server in servers.items():
+        routes = server.get('routes', [])
+        for route in routes:
+            hosts = []
+            for m in route.get('match', []):
+                if 'host' in m:
+                    hosts.extend(m['host'])
+            proxy = None
+            for h in route.get('handle', []):
+                if h.get('handler') == 'reverse_proxy':
+                    ups = h.get('upstreams', [])
+                    if ups:
+                        proxy = ups[0].get('dial')
+            if hosts and proxy:
+                entries.append({'domain': ','.join(hosts), 'proxy': proxy})
     return entries
 
-def serialize_entries(entries):
-    blocks = []
-    for e in entries:
-        blocks.append(f"{e['domain']} {{\n    reverse_proxy {e['proxy']}\n}}")
-    return "\n\n".join(blocks) + "\n"
+def json_to_caddyfile(config):
+    lines = []
+    servers = config.get('apps', {}).get('http', {}).get('servers', {})
+    for server in servers.values():
+        for route in server.get('routes', []):
+            hosts = []
+            for m in route.get('match', []):
+                if 'host' in m:
+                    hosts.extend(m['host'])
+            if not hosts:
+                continue
+            lines.append(f"{' '.join(hosts)} {{")
+            for h in route.get('handle', []):
+                if h.get('handler') == 'reverse_proxy':
+                    ups = h.get('upstreams', [])
+                    if ups:
+                        lines.append(f"    reverse_proxy {ups[0]['dial']}")
+                elif h.get('handler') == 'file_server':
+                    lines.append("    file_server")
+                elif h.get('handler') == 'vars' and 'root' in h:
+                    lines.append(f"    root * {h['root']}")
+            lines.append("}")
+            lines.append("")
+    return "\n".join(lines)
 
 @app.route('/manage', methods=['GET'])
 def manage():
-    try:
-        with open(CADDYFILE_PATH, 'r') as f:
-            content = f.read()
-    except FileNotFoundError:
-        content = ''
-        flash(f"Caddyfile not found at {CADDYFILE_PATH}", 'error')
-    entries = parse_entries(content)
+    config = load_caddy_json()
+    entries = parse_entries(config)
     status = caddy_status()
     return render_template_string(MANAGE_TEMPLATE, entries=entries, status=status)
 
@@ -79,10 +107,44 @@ def save_entries():
         for d, p in zip(domains, proxies)
         if d.strip() and p.strip()
     ]
-    content = serialize_entries(entries)
+
+    config = load_caddy_json()
+    servers = config.get('apps', {}).get('http', {}).get('servers', {})
+    if not servers:
+        servers['srv0'] = {'listen': [':80'], 'routes': []}
+    for server in servers.values():
+        other_routes = [
+            r for r in server.get('routes', [])
+            if not any(h.get('handler') == 'reverse_proxy' for h in r.get('handle', []))
+        ]
+        server['routes'] = other_routes
+        for e in entries:
+            route = {
+                'match': [{'host': [h.strip() for h in e['domain'].split(',')]}],
+                'handle': [{
+                    'handler': 'reverse_proxy',
+                    'upstreams': [{'dial': e['proxy']}]
+                }]
+            }
+            server['routes'].append(route)
+
+    new_caddyfile = json_to_caddyfile(config)
+    try:
+        fmt = subprocess.run(
+            ['caddy', 'fmt'],
+            input=new_caddyfile,
+            text=True,
+            capture_output=True,
+            check=True
+        )
+        formatted = fmt.stdout
+    except subprocess.CalledProcessError as e:
+        flash(f'Formatting failed: {e.stderr}', 'error')
+        formatted = new_caddyfile
+
     try:
         with open(CADDYFILE_PATH, 'w') as f:
-            f.write(content)
+            f.write(formatted)
         flash('Entries saved successfully.', 'success')
     except IOError as e:
         flash(f'Error saving file: {e}', 'error')
