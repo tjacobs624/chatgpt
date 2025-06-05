@@ -46,27 +46,68 @@ def load_caddy_json():
         return {}
 
 
+
+def find_proxy_in_route(route):
+    for h in route.get('handle', []):
+        p = find_proxy_in_handle(h)
+        if p:
+            return p
+    return None
+
+
+def find_proxy_in_handle(h):
+    if h.get('handler') == 'reverse_proxy':
+        ups = h.get('upstreams', [])
+        if ups:
+            return ups[0].get('dial')
+    if h.get('handler') == 'subroute':
+        for r in h.get('routes', []):
+            p = find_proxy_in_route(r)
+            if p:
+                return p
+    return None
+
+
+def route_has_proxy(route):
+    return find_proxy_in_route(route) is not None
+
+
 def parse_entries(config):
     entries = []
     servers = config.get('apps', {}).get('http', {}).get('servers', {})
-    for server_name, server in servers.items():
-        routes = server.get('routes', [])
-        for route in routes:
+    for server in servers.values():
+        for route in server.get('routes', []):
+
             hosts = []
             for m in route.get('match', []):
                 if 'host' in m:
                     hosts.extend(m['host'])
-            proxy = None
-            for h in route.get('handle', []):
-                if h.get('handler') == 'reverse_proxy':
-                    ups = h.get('upstreams', [])
-                    if ups:
-                        proxy = ups[0].get('dial')
-            if hosts and proxy:
+
+            if not hosts:
+                continue
+            proxy = find_proxy_in_route(route)
+            if proxy:
+
                 entries.append({'domain': ','.join(hosts), 'proxy': proxy})
     return entries
 
 def json_to_caddyfile(config):
+
+    def collect_directives(route, collected):
+        for h in route.get('handle', []):
+            if h.get('handler') == 'reverse_proxy':
+                ups = h.get('upstreams', [])
+                if ups:
+                    collected.append(f"    reverse_proxy {ups[0]['dial']}")
+            elif h.get('handler') == 'file_server':
+                collected.append("    file_server")
+            elif h.get('handler') == 'vars' and 'root' in h:
+                collected.append(f"    root * {h['root']}")
+            elif h.get('handler') == 'subroute':
+                for r in h.get('routes', []):
+                    collect_directives(r, collected)
+
+
     lines = []
     servers = config.get('apps', {}).get('http', {}).get('servers', {})
     for server in servers.values():
@@ -78,15 +119,11 @@ def json_to_caddyfile(config):
             if not hosts:
                 continue
             lines.append(f"{' '.join(hosts)} {{")
-            for h in route.get('handle', []):
-                if h.get('handler') == 'reverse_proxy':
-                    ups = h.get('upstreams', [])
-                    if ups:
-                        lines.append(f"    reverse_proxy {ups[0]['dial']}")
-                elif h.get('handler') == 'file_server':
-                    lines.append("    file_server")
-                elif h.get('handler') == 'vars' and 'root' in h:
-                    lines.append(f"    root * {h['root']}")
+
+            directives = []
+            collect_directives(route, directives)
+            lines.extend(directives)
+
             lines.append("}")
             lines.append("")
     return "\n".join(lines)
@@ -115,7 +152,9 @@ def save_entries():
     for server in servers.values():
         other_routes = [
             r for r in server.get('routes', [])
-            if not any(h.get('handler') == 'reverse_proxy' for h in r.get('handle', []))
+
+            if not route_has_proxy(r)
+
         ]
         server['routes'] = other_routes
         for e in entries:
