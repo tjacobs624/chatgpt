@@ -110,6 +110,8 @@ def save():
         flash(f'Error saving file: {e}', 'error')
     return redirect(url_for('raw_edit'))
 
+# ...existing code...
+
 RAW_TEMPLATE = '''<!doctype html>
 <html>
 <head>
@@ -535,3 +537,8 @@ a:hover {
 </body>
 </html>
 '''
+
+
+if __name__ == '__main__':
+    # Listen on port 5050 so the UI is accessible via http://localhost:5050
+    app.run(host='0.0.0.0', port=5050, debug=True)
