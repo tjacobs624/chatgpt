@@ -17,7 +17,8 @@ def caddy_status():
 
 @app.route('/')
 def home():
-    return render_template_string(HOME_TEMPLATE)
+    status = caddy_status()
+    return render_template_string(HOME_TEMPLATE, status=status)
 
 @app.route('/raw', methods=['GET'])
 def raw_edit():
@@ -28,7 +29,8 @@ def raw_edit():
     except FileNotFoundError:
         content = ''
         flash(f"Caddyfile not found at {CADDYFILE_PATH}", 'error')
-    return render_template_string(RAW_TEMPLATE, content=content)
+    status = caddy_status()
+    return render_template_string(RAW_TEMPLATE, content=content, status=status)
 
 def parse_entries(text: str):
     entries = []
@@ -65,7 +67,8 @@ def manage():
         content = ''
         flash(f"Caddyfile not found at {CADDYFILE_PATH}", 'error')
     entries = parse_entries(content)
-    return render_template_string(MANAGE_TEMPLATE, entries=entries)
+    status = caddy_status()
+    return render_template_string(MANAGE_TEMPLATE, entries=entries, status=status)
 
 @app.route('/save_entries', methods=['POST'])
 def save_entries():
@@ -88,12 +91,15 @@ def save_entries():
 @app.route('/service', methods=['GET'])
 def service():
     action = request.args.get('action')
+    next_page = request.args.get('next')
     if action in {'start', 'stop', 'restart'}:
         try:
             subprocess.check_call(['systemctl', action, 'caddy'])
             flash(f'Caddy {action}ed successfully.', 'success')
         except subprocess.CalledProcessError as e:
             flash(f'Failed to {action} caddy: {e}', 'error')
+        if next_page:
+            return redirect(next_page)
         return redirect(url_for('service'))
     status = caddy_status()
     return render_template_string(SERVICE_TEMPLATE, status=status)
@@ -132,6 +138,33 @@ header {
     letter-spacing: 2px;
     color: #7ec699;
     box-shadow: 0 2px 8px #0004;
+}
+.service-bar {
+    background: #23272b;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    box-shadow: 0 2px 8px #0004;
+}
+.service-bar .status {
+    color: #7ec699;
+    margin-bottom: 0.5rem;
+}
+.service-bar button {
+    background: linear-gradient(90deg, #7ec699 0%, #4ecca3 100%);
+    color: #181c20;
+    border: none;
+    border-radius: 6px;
+    padding: 0.4rem 1rem;
+    font-size: 0.9rem;
+    font-weight: bold;
+    cursor: pointer;
+    margin: 0 0.2rem;
+    box-shadow: 0 2px 8px #0003;
+    transition: background 0.2s, color 0.2s;
+}
+.service-bar button:hover {
+    background: linear-gradient(90deg, #4ecca3 0%, #7ec699 100%);
+    color: #fff;
 }
 .container {
     max-width: 900px;
@@ -203,6 +236,15 @@ ul.flashes {
 </head>
 <body>
 <header>Caddyfile Editor</header>
+<div class="service-bar">
+  <div class="status">Status: <b>{{ status }}</b></div>
+  <form method="get" action="{{ url_for('service') }}">
+    <input type="hidden" name="next" value="{{ request.path }}">
+    <button name="action" value="start">Start</button>
+    <button name="action" value="restart">Restart</button>
+    <button name="action" value="stop">Stop</button>
+  </form>
+</div>
 <div class="container">
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
@@ -243,6 +285,33 @@ header {
     letter-spacing: 2px;
     color: #7ec699;
     box-shadow: 0 2px 8px #0004;
+}
+.service-bar {
+    background: #23272b;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    box-shadow: 0 2px 8px #0004;
+}
+.service-bar .status {
+    color: #7ec699;
+    margin-bottom: 0.5rem;
+}
+.service-bar button {
+    background: linear-gradient(90deg, #7ec699 0%, #4ecca3 100%);
+    color: #181c20;
+    border: none;
+    border-radius: 6px;
+    padding: 0.4rem 1rem;
+    font-size: 0.9rem;
+    font-weight: bold;
+    cursor: pointer;
+    margin: 0 0.2rem;
+    box-shadow: 0 2px 8px #0003;
+    transition: background 0.2s, color 0.2s;
+}
+.service-bar button:hover {
+    background: linear-gradient(90deg, #4ecca3 0%, #7ec699 100%);
+    color: #fff;
 }
 .container {
     max-width: 900px;
@@ -332,6 +401,15 @@ ul.flashes {
 </head>
 <body>
 <header>Manage Proxies</header>
+<div class="service-bar">
+  <div class="status">Status: <b>{{ status }}</b></div>
+  <form method="get" action="{{ url_for('service') }}">
+    <input type="hidden" name="next" value="{{ request.path }}">
+    <button name="action" value="start">Start</button>
+    <button name="action" value="restart">Restart</button>
+    <button name="action" value="stop">Stop</button>
+  </form>
+</div>
 <div class="container">
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
@@ -486,6 +564,33 @@ header {
     color: #7ec699;
     box-shadow: 0 2px 8px #0004;
 }
+.service-bar {
+    background: #23272b;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    box-shadow: 0 2px 8px #0004;
+}
+.service-bar .status {
+    color: #7ec699;
+    margin-bottom: 0.5rem;
+}
+.service-bar button {
+    background: linear-gradient(90deg, #7ec699 0%, #4ecca3 100%);
+    color: #181c20;
+    border: none;
+    border-radius: 6px;
+    padding: 0.4rem 1rem;
+    font-size: 0.9rem;
+    font-weight: bold;
+    cursor: pointer;
+    margin: 0 0.2rem;
+    box-shadow: 0 2px 8px #0003;
+    transition: background 0.2s, color 0.2s;
+}
+.service-bar button:hover {
+    background: linear-gradient(90deg, #4ecca3 0%, #7ec699 100%);
+    color: #fff;
+}
 .container {
     max-width: 600px;
     margin: 3rem auto;
@@ -527,6 +632,15 @@ a:hover {
 </head>
 <body>
 <header>Caddy Manager</header>
+<div class="service-bar">
+  <div class="status">Status: <b>{{ status }}</b></div>
+  <form method="get" action="{{ url_for('service') }}">
+    <input type="hidden" name="next" value="{{ request.path }}">
+    <button name="action" value="start">Start</button>
+    <button name="action" value="restart">Restart</button>
+    <button name="action" value="stop">Stop</button>
+  </form>
+</div>
 <div class="container">
 <ul>
   <li><a href="{{ url_for('manage') }}">Manage Proxies</a></li>

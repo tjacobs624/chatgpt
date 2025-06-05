@@ -23,6 +23,9 @@ python app.py
 
 Then open `http://localhost:5050` in your browser.
 
+Each page now displays the current Caddy service status with quick action buttons
+to start, stop or restart the server.
+
 The start page links to:
 
 - **Manage Proxies** – form based editor for `reverse_proxy` entries.
