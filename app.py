@@ -1,5 +1,6 @@
 from flask import Flask, render_template_string, request, redirect, url_for, flash
 import subprocess
+
 import os
 
 app = Flask(__name__)
@@ -20,6 +21,7 @@ def home():
 
 @app.route('/raw', methods=['GET'])
 def raw_edit():
+
     try:
         with open(CADDYFILE_PATH, 'r') as f:
             content = f.read()
@@ -96,6 +98,7 @@ def service():
     status = caddy_status()
     return render_template_string(SERVICE_TEMPLATE, status=status)
 
+
 @app.route('/save', methods=['POST'])
 def save():
     content = request.form.get('content', '')
@@ -108,6 +111,7 @@ def save():
     return redirect(url_for('raw_edit'))
 
 RAW_TEMPLATE = '''<!doctype html>
+
 <title>Caddyfile Editor</title>
 <style>
 textarea { width: 100%; height: 80vh; font-family: monospace; }
